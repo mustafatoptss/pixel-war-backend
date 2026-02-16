@@ -6,13 +6,32 @@ import {
   COOLDOWN_TIME,
 } from "../constants/canvas.js";
 
-// Production'da Redis bağlantı hatalarını yakalamak önemlidir
-const redis = new Redis({
-  maxRetriesPerRequest: 3,
-  retryStrategy: (times) => Math.min(times * 50, 2000),
+// REDIS_URL ortam değişkenini kullan, yoksa localhost'a düş.
+const REDIS_HOST = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+console.log(`[DEBUG] Redis Connection Host: ${REDIS_HOST} (from process.env.REDIS_URL: ${process.env.REDIS_URL})`);
+
+const redis = new Redis(REDIS_HOST, {
+  maxRetriesPerRequest: null, // Süresiz yeniden deneme veya belirli bir sayı
+  enableReadyCheck: false, // Redis'in başlangıçta bağlanmasını beklemek yerine hemen devam et
 });
 
-redis.on("error", (err) => console.error("❌ Redis Hatası:", err));
+// Redis bağlantısı koptuğunda veya hata verdiğinde uygulamanın çökmesini engeller
+redis.on("error", (err) => {
+  console.error("❌ Redis Bağlantı Hatası:", err);
+  // Hata durumunda ek loglama, bildirim veya kurtarma mekanizmaları eklenebilir.
+  // Örneğin, bir sağlık kontrolü endpoint'i üzerinden Redis durumunu bildirebilirsiniz.
+});
+
+// Başarılı bağlantı durumunda loglama (isteğe bağlı)
+redis.on("connect", () => {
+  console.log("✅ Redis'e başarıyla bağlandı.");
+});
+redis.on("reconnecting", (delay) => {
+  console.log(`⚠️ Redis yeniden bağlanıyor... Son denemeden sonra ${delay}ms bekleyecek.`);
+});
+redis.on("end", () => {
+  console.log("🔌 Redis bağlantısı kapatıldı.");
+});
 
 export const canvasService = {
   async init() {
