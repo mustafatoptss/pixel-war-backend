@@ -7,10 +7,10 @@ import registerPixelHandlers from "./sockets/pixelHandler.js";
 const app = express();
 const httpServer = createServer(app);
 
-// CORS ayarlarını production için biraz daha spesifik tutabilirsin
+// CORS ayarları
 const io = new Server(httpServer, { 
   cors: { origin: "*" },
-  transports: ['websocket', 'polling'] // Bağlantı stabilitesi için
+  transports: ['websocket', 'polling']
 });
 
 // Başlangıçta tuvali hazırla
@@ -25,12 +25,18 @@ io.on("connection", async (socket) => {
   // Yeni bağlanan için hemen sayıyı güncelle
   broadcastUserCount();
 
+  // --- YENİ: NICKNAME KONTROLÜ (İstersen giriş ekranında kullan) ---
+  socket.on("check_nickname", async (nickname) => {
+    // Sadece nick'in boşta olup olmadığını döner, frontend'i bozmaz
+    const isAvailable = await canvasService.isNicknameAvailable(nickname);
+    socket.emit("nick_status", { success: isAvailable, nickname });
+  });
+
   socket.on("request_canvas", async () => {
     try {
       const currentCanvas = await canvasService.getCanvas();
       if (currentCanvas) {
         socket.emit("init_canvas", currentCanvas);
-        // Garanti olsun diye tekrar sayı gönder
         socket.emit('user_count', io.engine.clientsCount);
       }
     } catch (err) {
@@ -46,7 +52,7 @@ io.on("connection", async (socket) => {
   });
 });
 
-// Global hata yakalayıcı (Server'ın kapanmasını önler)
+// Global hata yakalayıcı
 process.on('uncaughtException', (err) => {
   console.error('🔥 Kritik Hata (Uncaught):', err);
 });

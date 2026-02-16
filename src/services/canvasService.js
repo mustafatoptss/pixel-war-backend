@@ -11,18 +11,19 @@ const REDIS_HOST = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 console.log(`[DEBUG] Redis Connection Host: ${REDIS_HOST} (from process.env.REDIS_URL: ${process.env.REDIS_URL})`);
 
 const redis = new Redis(REDIS_HOST, {
-  maxRetriesPerRequest: null, // Süresiz yeniden deneme veya belirli bir sayı
-  enableReadyCheck: false, // Redis'in başlangıçta bağlanmasını beklemek yerine hemen devam et
+  maxRetriesPerRequest: null, 
+  enableReadyCheck: false, 
 });
+
+// --- YENİ EKLENEN SABİT ---
+const LEADERBOARD_KEY = "leaderboard:pixels";
 
 // Redis bağlantısı koptuğunda veya hata verdiğinde uygulamanın çökmesini engeller
 redis.on("error", (err) => {
   console.error("❌ Redis Bağlantı Hatası:", err);
-  // Hata durumunda ek loglama, bildirim veya kurtarma mekanizmaları eklenebilir.
-  // Örneğin, bir sağlık kontrolü endpoint'i üzerinden Redis durumunu bildirebilirsiniz.
 });
 
-// Başarılı bağlantı durumunda loglama (isteğe bağlı)
+// Başarılı bağlantı durumunda loglama
 redis.on("connect", () => {
   console.log("✅ Redis'e başarıyla bağlandı.");
 });
@@ -38,7 +39,6 @@ export const canvasService = {
     try {
       const exists = await redis.exists(CANVAS_KEY);
       if (!exists) {
-        // Her piksel 1 byte (0-255 arası renk indeksi)
         const emptyCanvas = Buffer.alloc(CANVAS_WIDTH * CANVAS_HEIGHT, 0);
         await redis.set(CANVAS_KEY, emptyCanvas);
         console.log("🎨 Canvas initialized in Redis.");
@@ -58,7 +58,6 @@ export const canvasService = {
   },
 
   async updatePixel(x, y, colorIndex) {
-    // Koordinat güvenliği: Ofset dışarı taşarsa Redis çökebilir, engelliyoruz
     if (x < 0 || x >= CANVAS_WIDTH || y < 0 || y >= CANVAS_HEIGHT) return false;
     
     const offset = y * CANVAS_WIDTH + x;
@@ -81,4 +80,35 @@ export const canvasService = {
     const cooldown = await redis.get(`cooldown:${userId}`);
     return !!cooldown;
   },
+
+  // --- BURADAN AŞAĞISI LEADERBOARD İÇİN YENİ EKLENDİ ---
+
+  async incrementScore(nickname) {
+    if (!nickname) return;
+    try {
+      // Nickname üzerinden skoru 1 artırır
+      await redis.zincrby(LEADERBOARD_KEY, 1, nickname);
+    } catch (err) {
+      console.error("❌ Skor Artırma Hatası:", err);
+    }
+  },
+
+  async getLeaderboard() {
+    try {
+      // En yüksek 10 skoru çek (Nickname ve Skor ikilisi olarak gelir)
+      const topData = await redis.zrevrange(LEADERBOARD_KEY, 0, 9, "WITHSCORES");
+      
+      const leaderboard = [];
+      for (let i = 0; i < topData.length; i += 2) {
+        leaderboard.push({
+          nickname: topData[i],
+          score: parseInt(topData[i + 1])
+        });
+      }
+      return leaderboard;
+    } catch (err) {
+      console.error("❌ Leaderboard Çekme Hatası:", err);
+      return [];
+    }
+  }
 };
