@@ -41,7 +41,7 @@ export default function registerPixelHandlers(io, socket) {
         await canvasService.setCooldown(userId);
 
         // --- YENİ: LEADERBOARD SKORUNU ARTIR ---
-        await canvasService.incrementScore(nickname);
+        await canvasService.incrementScore(payload.userId, nickname);
 
         // 7. HERKESE YAYINLA
         io.emit('pixel_changed', { x, y, colorIndex, nickname });

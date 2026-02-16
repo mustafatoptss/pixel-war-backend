@@ -17,6 +17,7 @@ const redis = new Redis(REDIS_HOST, {
 
 // --- YENİ EKLENEN SABİT ---
 const LEADERBOARD_KEY = "leaderboard:pixels";
+const USER_NAMES_KEY = "user:names";
 
 // Redis bağlantısı koptuğunda veya hata verdiğinde uygulamanın çökmesini engeller
 redis.on("error", (err) => {
@@ -83,11 +84,13 @@ export const canvasService = {
 
   // --- BURADAN AŞAĞISI LEADERBOARD İÇİN YENİ EKLENDİ ---
 
-  async incrementScore(nickname) {
-    if (!nickname) return;
+  async incrementScore(userId, nickname) {
+    if (!userId || !nickname) return;
     try {
-      // Nickname üzerinden skoru 1 artırır
-      await redis.zincrby(LEADERBOARD_KEY, 1, nickname);
+      // Nickname'i HASH içinde güncelle
+      await redis.hset(USER_NAMES_KEY, userId, nickname);
+      // userId üzerinden skoru 1 artır
+      await redis.zincrby(LEADERBOARD_KEY, 1, userId);
     } catch (err) {
       console.error("❌ Skor Artırma Hatası:", err);
     }
@@ -95,14 +98,22 @@ export const canvasService = {
 
   async getLeaderboard() {
     try {
-      // En yüksek 10 skoru çek (Nickname ve Skor ikilisi olarak gelir)
+      // En yüksek 10 skoru (ID ve skor olarak) çek
       const topData = await redis.zrevrange(LEADERBOARD_KEY, 0, 9, "WITHSCORES");
       
       const leaderboard = [];
-      for (let i = 0; i < topData.length; i += 2) {
+      if (topData.length === 0) return leaderboard;
+
+      // Top 10'daki kullanıcı ID'lerini al
+      const userIds = topData.filter((_, i) => i % 2 === 0);
+      
+      // HASH'ten bu ID'lere ait nickname'leri tek seferde çek
+      const nicknames = await redis.hmget(USER_NAMES_KEY, ...userIds);
+
+      for (let i = 0; i < userIds.length; i++) {
         leaderboard.push({
-          nickname: topData[i],
-          score: parseInt(topData[i + 1])
+          nickname: nicknames[i] || 'Unknown', // Eğer HASH'te isim yoksa
+          score: parseInt(topData[i * 2 + 1])
         });
       }
       return leaderboard;
